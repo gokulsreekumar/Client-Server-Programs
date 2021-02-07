@@ -33,35 +33,37 @@ int main(void)
 	int socket_udp, i, slen = sizeof(si_client) , recv_len;
 	char buf[BUFLEN];
 	
-	//create a UDP socket
+	//Create a UDP socket
 	if ((socket_udp=socket(AF_INET, SOCK_DGRAM, 0)) == -1)
 	{
 		error("socket");
 	}
-	
-	// zero out the structure
+	printf("UDP Socket created!\n");
+
+	// Address Initialization
 	memset((char *) &si_server, 0, sizeof(si_server));
 	
+	// Make Address 
 	si_server.sin_family = AF_INET;
 	si_server.sin_port = htons(PORT);
 	si_server.sin_addr.s_addr = htonl(INADDR_ANY);
 	
-	//bind socket to port
+	//Bind address to socket
 	if( bind(socket_udp , (struct sockaddr*)&si_server, sizeof(si_server) ) == -1)
 	{
         close(socket_udp);
 		error("bind");
 	}
-	
-	//keep listening for data
+	printf("Socket bound to 0.0.0.0: 8888\n");
+	//Keep Listening for data
 	while(1)
 	{
-		printf("Waiting for data...\n\n");
+		printf("Waiting for data...\n");
 		fflush(stdout);
-
         bzero(buf, BUFLEN);
-		//try to receive some data, this is a blocking call
-        // WE CAN GIVE A FLAG OF MSG_WAITALL here instead of ZERO for Waiting for recieving all the message
+
+		// BLOCKING CALL FOR RECIEVING
+		//Try to receive some data, this is a blocking call
 		if ((recv_len = recvfrom(socket_udp, buf, BUFLEN, MSG_WAITALL, (struct sockaddr *) &si_client, &slen)) == -1)
 		{
 			error("recvfrom()");
@@ -73,11 +75,12 @@ int main(void)
 		printf("Data: %s\n" , buf);
         printf("----------------------------------------\n\n");
 		
-		//now reply the client with the same data
+		//Replying to Client with Same Data:
 		if (sendto(socket_udp, buf, recv_len, 0, (struct sockaddr*) &si_client, slen) == -1)
 		{
 			error("sendto()");
 		}
+		// Clearing Up the Buffer
         bzero(buf, BUFLEN);
 	}
 

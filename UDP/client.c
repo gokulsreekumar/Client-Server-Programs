@@ -1,10 +1,11 @@
 #include<stdio.h>	//printf
 #include<string.h> //memset
 #include<stdlib.h> //exit(0);
+#include <unistd.h> // socket close() defn
+
+// Socket Specific Imports
 #include<arpa/inet.h>
 #include<sys/socket.h>
-
-#include <unistd.h> // socket close() defn
 
 #define SERVER "127.0.0.1"
 #define BUFLEN 512	//Max length of buffer
@@ -16,6 +17,16 @@ void error(char *s)
 	exit(1);
 }
 
+/*
+    Flow of Server Set Up:
+    socket() 
+     |
+	sendto()
+	 |
+    recvfrom()
+
+*/
+
 int main(void)
 {
 	struct sockaddr_in si_client;
@@ -23,12 +34,13 @@ int main(void)
 	char buf[BUFLEN];
 	char message[BUFLEN];
 
-	if ( (socket_udp=socket(AF_INET, SOCK_DGRAM, 0)) == -1)
+	if ((socket_udp=socket(AF_INET, SOCK_DGRAM, 0)) == -1)
 	{
 		error("socket");
 	}
 
 	memset((char *) &si_client, 0, sizeof(si_client));
+
 	si_client.sin_family = AF_INET;
 	si_client.sin_port = htons(PORT);
 	if (inet_aton(SERVER , &si_client.sin_addr) == 0) 
@@ -46,16 +58,17 @@ int main(void)
             close(socket_udp);
             exit(0);
         }
-		//send the message
+		//SendTo() for sending UDP
 		if (sendto(socket_udp, message, strlen(message) , 0 , (struct sockaddr *) &si_client, slen)==-1)
 		{
 			error("sendto()");
 		}
 		
-		//receive a reply and print it
-		//clear the buffer by filling null, it might have previously received data
+		//clear the buffer
 		memset(buf,'\0', BUFLEN);
-		//try to receive some data, this is a blocking call
+
+		// BLOCKING CALL FOR RECIEVING
+		// try to receive some data, this is a blocking call
 		if (recvfrom(socket_udp, buf, BUFLEN, 0, (struct sockaddr *) &si_client, &slen) == -1)
 		{
 			error("recvfrom()");

@@ -1,8 +1,10 @@
 #include <stdio.h> 
+#include <string.h> 
+#include <unistd.h> 	// socket close() defn
+
 #include <sys/socket.h> 
 #include <arpa/inet.h>  // for inet_ntoa
-#include <unistd.h> 	// socket close() defn
-#include <string.h> 
+
 #define PORT 8080   	// PORT to connect to
 #define LO "127.0.0.1" 	// LOOPBACK ADDRESS FOR CONNECTING TO LOCAL HOST 
 
