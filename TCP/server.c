@@ -1,94 +1,89 @@
 #include <stdio.h> 
-#include <netdb.h> 
-#include <netinet/in.h> 
 #include <stdlib.h> 
-#include <string.h> 
-#include <sys/socket.h> 
-#include <sys/types.h> 
-#define MAX 80 
+#include <string.h>
+#include <unistd.h>     // socket close() defn
+
+// Socket Specific Imports
+
+#include <sys/types.h>  // for type definitions used int socket.h and in.h
+#include <sys/socket.h> // all network socket related functions and structures (eg. sockaddr)
+
+#include <netinet/in.h> // for sockaddr_in
+#include<arpa/inet.h>   // for inet_ntoa
+
 #define PORT 8080 
-#define SA struct sockaddr 
 
-// Function designed for chat between client and server. 
-void comm(int sockfd) 
+int main(int argc, char const *argv[]) 
 { 
-	char buff[MAX]; 
-	int n; 
-	// infinite loop for chat 
-	while(1) { 
-		bzero(buff, MAX); 
-
-		// read the message from client and copy it in buffer 
-		read(sockfd, buff, sizeof(buff)); 
-		// print buffer which contains the client contents 
-		printf("From client: %s\t To client : ", buff); 
-		bzero(buff, MAX); 
-		n = 0; 
-		// copy server message in the buffer 
-		while ((buff[n++] = getchar()) != '\n'); 
-
-		// and send that buffer to client 
-		write(sockfd, buff, sizeof(buff)); 
-
-		// if msg contains "Exit" then server exit and chat ended. 
-		if (strncmp("close", buff, 5) == 0) { 
-			printf("Server Exit!\n"); 
-			break; 
-		} 
+	int server_fd, new_socket, n; 
+	struct sockaddr_in server_address, client_address; 
+	char buffer[1024] = {0}; 
+	
+	// Create TCP Socket
+	if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) 
+	{ 
+		perror("socket failed"); 
+		exit(EXIT_FAILURE); 
 	} 
-} 
+	printf("TCP Socket Created!\n");
 
-// Driver function 
-int main() 
-{ 
-	int sockfd, connfd, len; 
-	struct sockaddr_in servaddr, cli; 
+	// Make server_addr 
+	// Address internet: (IP,port)
+	server_address.sin_family = AF_INET; 
+	server_address.sin_addr.s_addr = INADDR_ANY; 
+	server_address.sin_port = htons( PORT ); 
+	
+	// Binding socket to the server_addr
+	if (bind(server_fd, (struct sockaddr *)&server_address, sizeof(server_address))<0) 
+	{ 
+		perror("bind failed"); 
+		exit(EXIT_FAILURE); 
+	}
+	printf("Socket bound to 0.0.0.0: 8080\n");
 
-	// socket create and verification 
-	sockfd = socket(AF_INET, SOCK_STREAM, 0); 
-	if (sockfd == -1) { 
-		printf("socket creation failed...\n"); 
-		exit(0); 
+	// Listening at Port
+	if(listen(server_fd, 3) < 0) 
+	{ 
+		perror("listen"); 
+		exit(EXIT_FAILURE); 
 	} 
-	else
-		printf("Socket successfully created..\n"); 
-	bzero(&servaddr, sizeof(servaddr)); 
+	printf("Listening on Port: 8080\n");
 
-	// assign IP, PORT 
-	servaddr.sin_family = AF_INET; 
-	servaddr.sin_addr.s_addr = htonl(INADDR_ANY); 
-	servaddr.sin_port = htons(PORT); 
-
-	// Binding newly created socket to given IP and verification 
-	if ((bind(sockfd, (SA*)&servaddr, sizeof(servaddr))) != 0) { 
-		printf("socket bind failed...\n"); 
-		exit(0); 
+	// Awaiting Incoming Connections
+	// Accepting Connections, yielding new_socket
+	int addrlen = sizeof(client_address); 
+	if ((new_socket = accept(server_fd, (struct sockaddr *)&client_address, (socklen_t*)&addrlen))<0) 
+	{ 
+		perror("accept"); 
+		exit(EXIT_FAILURE); 
 	} 
-	else
-		printf("Socket successfully binded..\n"); 
+	// inet_ntoa() : Convert Internet number in IN to ASCII representation. 
+	// The return value is a pointer to an internal array containing the string.
+	// ntohs() => internet number to 16 bit (PORT)
+ 	// ntohl() => internet number to 32 bit (IP Address)
+	printf("Connected to %s:%d\n", inet_ntoa(client_address.sin_addr), ntohs(client_address.sin_port));
 
-	// Now server is ready to listen and verification 
-	if ((listen(sockfd, 5)) != 0) { 
-		printf("Listen failed...\n"); 
-		exit(0); 
-	} 
-	else
-		printf("Server listening..\n"); 
-	len = sizeof(cli); 
+	// Communication send/recv
+	while(1) {
+		bzero(buffer, 1024);
+		n = recv( new_socket , buffer, 1024, 0); 
+		if(n<0) {
+			printf("Reading Error!\n");
+		}
+		printf("Client: %s\n", buffer);
+		bzero(buffer, 1024);
+		printf("Enter Server's Message:");
+		fgets(buffer, 1024, stdin);
+		if(strncmp(buffer, "close", 5)==0) {
+			close(new_socket);
+			break;
+		}
+		send(new_socket , buffer , strlen(buffer) , 0 ); 
+	}
 
-	// Accept the data packet from client and verification 
-	connfd = accept(sockfd, (SA*)&cli, &len); 
-	if (connfd < 0) { 
-		printf("server acccept failed...\n"); 
-		exit(0); 
-	} 
-	else
-		printf("server acccept the client...\n"); 
-
-	// Function for chatting between client and server 
-	comm(connfd); 
-
-	// After chatting close the socket 
-	close(sockfd); 
+	// Close Server
+	close(server_fd);
+	printf("Server Closed.\n");
+	return 0; 
 } 
 
