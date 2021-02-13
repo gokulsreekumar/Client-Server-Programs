@@ -1,45 +1,35 @@
-#include <stdio.h> 
+#include <stdio.h>
 #include <stdlib.h>
-#include <string.h> 
+#include <string.h>
 #include <unistd.h> 	// socket close() defn
 
-#include <sys/socket.h> 
+#include <sys/socket.h>
 #include <arpa/inet.h>  // for inet_ntoa
+#include <netinet/in.h>
 
-#include <pthread.h>
 #include <signal.h>
+#include <errno.h>
 
-#define PORT 8888   	// PORT to connect to
-#define LO "127.0.0.1" 	// LOOPBACK ADDRESS FOR CONNECTING TO LOCAL HOST 
+#define BUFSIZE 1024
+#define LO "127.0.0.1"
+#define PORT 8080
 
-#define LENGTH 2048
 
-char name[32];
-char new_entry_message[42];
-
-// FLAG for Blocking Exit from happening
-volatile sig_atomic_t flag = 0;
-
-void str_overwrite_stdout();
 void str_trim_lf(char *arr, int length);
-void catch_ctrl_c_and_exit(int sig);
 
-// Sending and Recieving Message Threads
-void* send_msg_handler(void*);
-void* recv_msg_handler(void*);
+void connect_request(int *sockfd, struct sockaddr_in *server_addr);
+void send_recv(int i, int sockfd, char name[32], fd_set* master);
 
-// Calls sending and recieving threads
-void communication(int);
-void block();
-
-int main(int argc, char const *argv[]) 
-{ 
-	int socket_client = 0, n; 
-	struct sockaddr_in serv_addr; 
-	char buffer[1024] = {0}; 
+int main()
+{
+    int sockfd, fdmax, i;
+    struct sockaddr_in server_addr;
+    fd_set master;
+    fd_set read_fds;
+    char name[32];
+    char new_entry_message[42];
 
     // Get the CLient Name (pseudo login)
-
     printf("Please enter your name: ");
     fgets(name, 32, stdin);
     str_trim_lf(name, strlen(name));
@@ -50,123 +40,102 @@ int main(int argc, char const *argv[])
         return EXIT_FAILURE;
     }
 
-	// Create Socket
-	if ((socket_client = socket(AF_INET, SOCK_STREAM, 0)) < 0) 
-	{ 
-		printf("\n Socket creation error \n"); 
-		return -1; 
-	}
+    connect_request(&sockfd, &server_addr);
 
-	// Make Address
-	serv_addr.sin_family = AF_INET; 
-	serv_addr.sin_port = htons(PORT); 
-	
-	// Convert IPv4 and IPv6 addresses from text to binary form 
-	if(inet_pton(AF_INET, LO , &serv_addr.sin_addr)<=0) 
-	{ 
-		printf("\nInvalid address/ Address not supported \n"); 
-		return -1; 
-	} 
-
-	// Connect()
-	if (connect(socket_client, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) 
-	{ 
-		printf("\nConnection Failed \n"); 
-		return -1; 
-	}
-	
     // Send a new Joining message to the server.
     strcpy(new_entry_message, name);
-    strcat(new_entry_message, " joined! \n");
+    strcat(new_entry_message, " joined!");
+    send(sockfd, new_entry_message, 32, 0);
 
-    send(socket_client, new_entry_message, 32, 0);
+    // Initialization
+    FD_ZERO(&master);
+    FD_ZERO(&read_fds);
+
+    // Add 0 to the Master Set of FDs
+    // This is to see if anything has been read in from stdin
+    FD_SET(0, &master);
+    FD_SET(sockfd, &master);
 
     // Start Chat Room: WELCOME message
     printf("\n--------------------- WELCOME TO THE CHATROOM ---------------------\n");
 
+    fdmax = sockfd;
 
-	// Communication
-    communication(socket_client);
-
-	close(socket_client);
-
-    return EXIT_SUCCESS;
-}
-
-
-void communication(int socket_client) {
-
-    int* pclient = malloc(sizeof(int));
-	*pclient = socket_client;
-    // sending thread
-    pthread_t send_msg_thread;
-    if (pthread_create(&send_msg_thread, NULL, (void *)send_msg_handler, pclient) != 0)
-    {
-        printf("ERROR: pthread\n");
-        return EXIT_FAILURE;
-    }
-
-    // recieving thread
-    pthread_t recv_msg_thread;
-    if (pthread_create(&recv_msg_thread, NULL, (void *)recv_msg_handler, pclient) != 0)
-    {
-        printf("ERROR: pthread\n");
-        return EXIT_FAILURE;
-    }
-
-    // Block the Program from returning
-    block();
-}
-
-
-void* send_msg_handler(void* pclient)
-{
-    int sockfd = *((int* ) pclient);
-    char message[LENGTH] = {};
-    char buffer[LENGTH + 32] = {};
     while (1)
     {
-        str_overwrite_stdout();
-        fgets(message, LENGTH, stdin);
-        str_trim_lf(message, LENGTH);
-
-        if (strcmp(message, "exit") == 0)
+        // Taking a Copy of FD set.
+        read_fds = master;
+        if (select(fdmax + 1, &read_fds, NULL, NULL, NULL) == -1)
         {
-            break;
+            perror("select");
+            exit(4);
+        }
+        // Activity eitehr in this Client's Socket or STDIN
+        for (i = 0; i <= fdmax; i++)
+            if (FD_ISSET(i, &read_fds))
+               send_recv(i, sockfd, name, &master);
+    }
+    
+    printf("Bye\n");
+    close(sockfd);
+    return 0;
+}
+
+
+void connect_request(int *sockfd, struct sockaddr_in *server_addr)
+{
+    if ((*sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1)
+    {
+        perror("Socket");
+        exit(1);
+    }
+
+    server_addr->sin_family = AF_INET;
+    server_addr->sin_port = htons(PORT);
+    server_addr->sin_addr.s_addr = inet_addr(LO);
+
+    if (connect(*sockfd, (struct sockaddr *)server_addr, sizeof(struct sockaddr)) == -1)
+    {
+        perror("connect");
+        exit(1);
+    }
+}
+
+void send_recv(int i, int sockfd, char name[32], fd_set* master)
+{
+    char in_buf[BUFSIZE];
+    char send_buf[BUFSIZE+32]="";
+    char recv_buf[BUFSIZE];
+    char disconnect_mssge[32];
+    int nbyte_recvd;
+    if (i == 0)
+    {
+        fgets(in_buf, BUFSIZE, stdin);
+        str_trim_lf(in_buf, BUFSIZE);
+
+        sprintf(send_buf, "%s > %s", name, in_buf);
+
+        if (strncmp(in_buf,"tata", 4) == 0)
+        {
+            sprintf(disconnect_mssge,"%s left the chat.", name);
+            send(sockfd, disconnect_mssge, strlen(disconnect_mssge), 0);
+            FD_CLR(i, master);
+            close(i);
+            close(sockfd);
+            exit(0);
         }
         else
-        {
-            sprintf(buffer, "%s: %s\n", name, message);
-            send(sockfd, buffer, strlen(buffer), 0);
-        }
-
-        bzero(message, LENGTH);
-        bzero(buffer, LENGTH + 32);
+            send(sockfd, send_buf, strlen(send_buf), 0);
+        bzero(send_buf, BUFSIZE);
     }
-    catch_ctrl_c_and_exit(2);
-    return NULL;
-}
-
-void* recv_msg_handler(void* pclient)
-{
-    int sockfd = *((int* ) pclient);
-    char message[LENGTH] = {};
-    while (1)
+    else
     {
-        int receive = recv(sockfd, message, LENGTH, 0);
-        if (receive > 0)
-        {
-            printf("%s", message);
-            str_overwrite_stdout();
-        }
-        else if (receive == 0)
-        {
-            break;
-        }
-        memset(message, 0, sizeof(message));
+        nbyte_recvd = recv(sockfd, recv_buf, BUFSIZE, 0);
+        recv_buf[nbyte_recvd] = '\0';
+        printf("%s\n", recv_buf);
     }
-    return NULL;
 }
+
 
 void str_trim_lf(char *arr, int length) {
     int i;
@@ -181,25 +150,3 @@ void str_trim_lf(char *arr, int length) {
     }
 }
 
-void str_overwrite_stdout()
-{
-    printf("%s", "> ");
-    fflush(stdout);
-}
-
-void block() 
-{
-    while (1)
-    {
-        if (flag)
-        {
-            printf("\nBye.\n");
-            return;
-        }
-    }
-}
-
-void catch_ctrl_c_and_exit(int sig)
-{
-    flag = 1;
-}

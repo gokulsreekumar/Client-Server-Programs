@@ -1,4 +1,3 @@
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,151 +8,154 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 
-#define PORT "8888"   // port we're listening on
+#define PORT 8080
+#define BUFSIZE 1024
 
-// get sockaddr, IPv4 or IPv6:
-void *get_in_addr(struct sockaddr *sa)
+// Server Set Up: Socket Creation, Binding, Listening
+void server_set_up(int *sockfd, struct sockaddr_in *server_addr);
+// Accept a Client Connection
+void connection_accept(fd_set *master, int *fdmax, int sockfd, struct sockaddr_in *client_addr);
+// Handle Sending and recieving of Data
+void send_recv(int i, fd_set *master, int sockfd, int fdmax);
+
+int main()
 {
-	if (sa->sa_family == AF_INET) {
-		return &(((struct sockaddr_in*)sa)->sin_addr);
-	}
+    fd_set master, read_fds;
 
-	return &(((struct sockaddr_in6*)sa)->sin6_addr);
-}
+    int fdmax, i;
+    int sockfd = 0;
 
-int main(void)
-{
-    fd_set master;    // master file descriptor list
-    fd_set read_fds;  // temp file descriptor list for select()
-    int fdmax;        // maximum file descriptor number
+    struct sockaddr_in server_addr, client_addr;
 
-    int listener;     // listening socket descriptor
-    int newfd;        // newly accept()ed socket descriptor
-    struct sockaddr_storage remoteaddr; // client address
-    socklen_t addrlen;
-
-    char buf[256];    // buffer for client data
-    int nbytes;
-
-	char remoteIP[INET6_ADDRSTRLEN];
-
-    int yes=1;        // for setsockopt() SO_REUSEADDR, below
-    int i, j, rv;
-
-	struct addrinfo hints, *ai, *p;
-
-    FD_ZERO(&master);    // clear the master and temp sets
+    // Initialization
+    FD_ZERO(&master);
     FD_ZERO(&read_fds);
 
-	// get us a socket and bind it
-	memset(&hints, 0, sizeof hints);
-	hints.ai_family = AF_UNSPEC;
-	hints.ai_socktype = SOCK_STREAM;
-	hints.ai_flags = AI_PASSIVE;
-	if ((rv = getaddrinfo(NULL, PORT, &hints, &ai)) != 0) {
-		fprintf(stderr, "selectserver: %s\n", gai_strerror(rv));
-		exit(1);
-	}
-	
-	for(p = ai; p != NULL; p = p->ai_next) {
-    	listener = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
-		if (listener < 0) { 
-			continue;
-		}
-		
-		// lose the pesky "address already in use" error message
-		setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
+    server_set_up(&sockfd, &server_addr);
 
-		if (bind(listener, p->ai_addr, p->ai_addrlen) < 0) {
-			close(listener);
-			continue;
-		}
+    // Add Server Socket to Master Set of Sockets
+    FD_SET(sockfd, &master);
 
-		break;
-	}
+    // Maximum Socket Number as of now.
+    fdmax = sockfd;
 
-	// if we got here, it means we didn't get bound
-	if (p == NULL) {
-		fprintf(stderr, "selectserver: failed to bind\n");
-		exit(2);
-	}
+    while (1)
+    {
+        // Taking a Copy of FD set.
+        read_fds = master;
 
-	freeaddrinfo(ai); // all done with this
-
-    // listen
-    if (listen(listener, 10) == -1) {
-        perror("listen");
-        exit(3);
-    }
-
-    // add the listener to the master set
-    FD_SET(listener, &master);
-
-    // keep track of the biggest file descriptor
-    fdmax = listener; // so far, it's this one
-
-    // main loop
-    for(;;) {
-        read_fds = master; // copy it
-        if (select(fdmax+1, &read_fds, NULL, NULL, NULL) == -1) {
+        // Checking for any Activity (Rewrites read_fds)
+        if (select(fdmax + 1, &read_fds, NULL, NULL, NULL) == -1)
+        {
             perror("select");
             exit(4);
         }
 
-        // run through the existing connections looking for data to read
-        for(i = 0; i <= fdmax; i++) {
-            if (FD_ISSET(i, &read_fds)) { // we got one!!
-                if (i == listener) {
-                    // handle new connections
-                    addrlen = sizeof remoteaddr;
-					newfd = accept(listener,
-						(struct sockaddr *)&remoteaddr,
-						&addrlen);
-
-					if (newfd == -1) {
-                        perror("accept");
-                    } else {
-                        FD_SET(newfd, &master); // add to master set
-                        if (newfd > fdmax) {    // keep track of the max
-                            fdmax = newfd;
-                        }
-                        printf("selectserver: new connection from %s on "
-                            "socket %d\n",
-							inet_ntop(remoteaddr.ss_family,
-								get_in_addr((struct sockaddr*)&remoteaddr),
-								remoteIP, INET6_ADDRSTRLEN),
-							newfd);
-                    }
-                } else {
-                    // handle data from a client
-                    if ((nbytes = recv(i, buf, sizeof buf, 0)) <= 0) {
-                        // got error or connection closed by client
-                        if (nbytes == 0) {
-                            // connection closed
-                            printf("selectserver: socket %d hung up\n", i);
-                        } else {
-                            perror("recv");
-                        }
-                        close(i); // bye!
-                        FD_CLR(i, &master); // remove from master set
-                    } else {
-                        // we got some data from a client
-                        for(j = 0; j <= fdmax; j++) {
-                            // send to everyone!
-                            if (FD_ISSET(j, &master)) {
-                                // except the listener and ourselves
-                                if (j != listener && j != i) {
-                                    if (send(j, buf, nbytes, 0) == -1) {
-                                        perror("send");
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } // END handle data from client
-            } // END got new incoming connection
-        } // END looping through file descriptors
-    } // END for(;;)--and you thought it would never end!
-    
+        // Finding the Socket which requires the Attention
+        for (i = 0; i <= fdmax; i++)
+        {
+            if (FD_ISSET(i, &read_fds))
+            {
+                if (i == sockfd)
+                    // If the server socket is having any new connections.
+                    // Add new Connection SocketFD to Master Set of FDs
+                    connection_accept(&master, &fdmax, sockfd, &client_addr);
+                else
+                    // Activity in some connected client socket.
+                    send_recv(i, &master, sockfd, fdmax);
+            }
+        }
+    }
     return 0;
+}
+
+void server_set_up(int *sockfd, struct sockaddr_in *server_addr)
+{
+    if ((*sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1)
+    {
+        perror("Socket");
+        exit(1);
+    }
+
+    // Make Address
+    server_addr->sin_family = AF_INET;
+    server_addr->sin_port = htons(PORT);
+    server_addr->sin_addr.s_addr = INADDR_ANY;
+
+    //memset(server_addr->sin_zero, "", sizeof server_addr->sin_zero);
+
+    // Bind
+    if (bind(*sockfd, (struct sockaddr *)server_addr, sizeof(struct sockaddr)) == -1)
+    {
+        perror("Unable to bind");
+        exit(1);
+    }
+    printf("TCP Server Bound to Port: %d\n", PORT);
+    // Listen
+    if (listen(*sockfd, 10) == -1)
+    {
+        perror("listen");
+        exit(1);
+    }
+    printf("TCP Server Waiting for Client Requests...\n");
+    fflush(stdout);
+}
+
+
+void connection_accept(fd_set *master, int *fdmax, int sockfd, struct sockaddr_in *client_addr)
+{
+    socklen_t addrlen = sizeof(struct sockaddr_in);
+    int newsockfd;
+
+    if ((newsockfd = accept(sockfd, (struct sockaddr *)client_addr, &addrlen)) == -1)
+    {
+        perror("accept");
+        exit(1);
+    } 
+    else 
+    {
+        // Add the new Socket to the Master Set.
+        FD_SET(newsockfd, master);
+        // Update the maximum fd if need be.
+        if (newsockfd > *fdmax)
+            *fdmax = newsockfd;
+        printf("New connection at %s : %d \n", inet_ntoa(client_addr->sin_addr), ntohs(client_addr->sin_port));
+    }
+}
+
+void send_recv(int i, fd_set *master, int sockfd, int fdmax) 
+{
+    int recv_size, j;
+    char recv_buf[BUFSIZE], buf[BUFSIZE];
+    if ((recv_size = recv(i, recv_buf, BUFSIZE, 0)) <= 0)
+    {
+        if (recv_size == 0)
+            printf("Socket with FD: %d Hung Up\n", i);
+        else
+            perror("recv");
+
+        // Close the FD 
+        // Clear the Socket from the Master FDs Set
+        close(i);
+        FD_CLR(i, master);
+    }
+    else
+    {
+        for (j = 0; j <= fdmax; j++)
+        {
+            // Broadcast the Recieved Message to All
+            if (FD_ISSET(j, master))
+            {
+                if (j != sockfd && j != i)
+                {
+                    if (send(j, recv_buf, recv_size, 0) == -1)
+                    {
+                        perror("send");
+                    }
+                }
+            }
+        }
+        printf("%s\n", recv_buf);
+        bzero(recv_buf, BUFSIZE);
+    }
 }
