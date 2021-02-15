@@ -105,6 +105,14 @@ void server_set_up(int *sockfd, struct sockaddr_in *server_addr)
         exit(1);
     }
     printf("TCP Server Bound to Port: %d\n", PORT);
+
+    // Options
+    int flag = 1;
+	if (setsockopt(*sockfd, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(int)) == -1) {
+		perror("error in setsockopt");
+		exit(1);
+	}
+
     // Listen
     if (listen(*sockfd, 10) == -1)
     {
