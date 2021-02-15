@@ -14,11 +14,15 @@
 #define MAX_NUMBER_CLIENTS 1024
 char name_directory[MAX_NUMBER_CLIENTS][32];
 
+#define PASSWORD "password"
+
 // Message Structure
 // 0 - Message
 // 1 - name
 // 2 - end
 // 3 - namelist
+// 4 - ERROR IN PASSWORD
+// 
 struct message
 {
     int type;
@@ -67,8 +71,7 @@ int main()
             perror("select");
             exit(4);
         }
-        // Finding the Socket which requires the Attention
-        for (i = 0; i <= fdmax; i++)
+       for (i = 0; i <= fdmax; i++)
         {
             if (FD_ISSET(i, &read_fds))
             {
@@ -146,8 +149,6 @@ void connection_accept(fd_set *master, int *fdmax, int sockfd, struct sockaddr_i
         if (newsockfd > *fdmax)
             *fdmax = newsockfd;
         printf("New connection at %s : %d \n", inet_ntoa(client_addr->sin_addr), ntohs(client_addr->sin_port));
-
-        // Send the List of Online Members
         strcpy(send_message.data, "\0");
         for (int i = 0; i < *(fdmax); i++)
         {
@@ -194,10 +195,20 @@ void send_recv(int i, fd_set *master, int sockfd, int fdmax)
 
         if (recv_message.type == 1)
         {
-            // Add the name to Directory
-            strcpy(name_directory[i], recv_message.name);
+            // printf("%s: is the password recv\n", recv_message.data);
+            // printf("%s: is the actual password\n", PASSWORD);
+            if(strcmp(recv_message.data, PASSWORD)==0) {
+                // Add the name to Directory
+                strcpy(name_directory[i], recv_message.name);
+            } else {
+                send_message.type = 4;
+                send(i, &send_message, sizeof(struct message), 0);
+                close(i);
+                FD_CLR(i, master);
+                return;
+            }
+            
         }
-
         for (j = 0; j <= fdmax; j++)
         {
             // Broadcast the Recieved Message to All
@@ -212,13 +223,10 @@ void send_recv(int i, fd_set *master, int sockfd, int fdmax)
                 }
             }
         }
-        if (recv_message.type == 0)
+
+        if (recv_message.type == 2)
         {
-            printf("%s > %s\n", recv_message.name, recv_message.data);
-        }
-        else if (recv_message.type == 2)
-        {
-            printf("%s left the chat\n", recv_message.name);
+            printf("%s left the discussion\n", recv_message.name);
         }
         bzero(recv_buf, BUFSIZE);
     }

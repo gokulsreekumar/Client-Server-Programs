@@ -19,6 +19,7 @@
 // 1 - name
 // 2 - end
 // 3 - namelist
+// 4 - ERROR IN PASSWORD
 struct message
 {
     int type;
@@ -38,6 +39,7 @@ int main()
     fd_set master;
     fd_set read_fds;
     char name[32];
+    char password[32];
     char new_entry_message[45];
 
     // Get the CLient Name (pseudo login)
@@ -49,6 +51,9 @@ int main()
         printf("Name must be less than 30 and more than 2 characters.\n");
         return EXIT_FAILURE;
     }
+    printf("Please enter your password: ");
+    fgets(password, 32, stdin);
+    trim_newline(password, strlen(password));
 
     // Connect to the Socket
     connect_request(&sockfd, &server_addr);
@@ -57,7 +62,7 @@ int main()
     struct message new_member_message;
     new_member_message.type = 1;
     strcpy(new_member_message.name, name);
-    strcpy(new_member_message.data, "\0");
+    strcpy(new_member_message.data, password);
     send(sockfd, &new_member_message, sizeof(struct message), 0);
 
     // Initialization of FD sets
@@ -69,8 +74,7 @@ int main()
     FD_SET(0, &master);
     FD_SET(sockfd, &master);
 
-    // Start Chat Room: WELCOME message
-    printf("\n--------------------- WELCOME TO THE CHATROOM ---------------------\n");
+    printf("\nWelcome to Project COBRA\n");
 
     fdmax = sockfd;
     while (1)
@@ -109,7 +113,7 @@ void connect_request(int *sockfd, struct sockaddr_in *server_addr)
         exit(1);
     }
 }
-
+int cnt = 0;
 void send_recv(int i, int sockfd, char name[32], fd_set *master)
 {
     char in_buf[BUFSIZE];
@@ -128,10 +132,10 @@ void send_recv(int i, int sockfd, char name[32], fd_set *master)
         strcpy(send_message.name, name);
         sprintf(send_message.data, "%s", in_buf);
 
-        if (strncmp(in_buf, "tata", 4) == 0)
+        if (strncmp(in_buf, "bye", 3) == 0)
         {
             send_message.type = 2;
-            sprintf(send_message.data, "Left the chat!");
+            sprintf(send_message.data, "left the discussion");
             send(sockfd, &send_message, sizeof(struct message), 0);
             FD_CLR(i, master);
             close(i);
@@ -151,7 +155,7 @@ void send_recv(int i, int sockfd, char name[32], fd_set *master)
         }
         if (recv_message.type == 0)
         {
-            printf("%s > %s\n", recv_message.name, recv_message.data);
+            printf("[%s]: %s\n", recv_message.name, recv_message.data);
         }
         else if (recv_message.type == 1)
         {
@@ -163,7 +167,13 @@ void send_recv(int i, int sockfd, char name[32], fd_set *master)
         }
         else if (recv_message.type == 3)
         {
-            printf("%s is present!\n", recv_message.name);
+            printf("%d. %s is present\n", ++cnt, recv_message.name);
+        }
+        else if (recv_message.type == 4) 
+        {
+            printf("Sorry Wrong Password. Try Again to Enter\n");
+            close(sockfd);
+            exit(0);
         }
     }
 }
