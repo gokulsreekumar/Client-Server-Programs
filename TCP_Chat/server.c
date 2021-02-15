@@ -26,11 +26,12 @@ struct message
     char data[BUFSIZE];
 };
 
+// Server Utilities
 // Server Set Up: Socket Creation, Binding, Listening
-void server_set_up(int *sockfd, struct sockaddr_in *server_addr);
 // Accept a Client Connection
-void connection_accept(fd_set *master, int *fdmax, int sockfd, struct sockaddr_in *client_addr);
 // Handle Sending and recieving of Data
+void server_set_up(int *sockfd, struct sockaddr_in *server_addr);
+void connection_accept(fd_set *master, int *fdmax, int sockfd, struct sockaddr_in *client_addr);
 void send_recv(int i, fd_set *master, int sockfd, int fdmax);
 
 int main()
@@ -49,8 +50,8 @@ int main()
     server_set_up(&sockfd, &server_addr);
 
     // Add Server Socket to Master Set of Sockets
+    // and Set Maximum Socket Number as of now.
     FD_SET(sockfd, &master);
-    // Maximum Socket Number as of now.
     fdmax = sockfd;
 
     // Initialize the Name directory as Empty
@@ -60,14 +61,12 @@ int main()
     {
         // Taking a Copy of FD set.
         read_fds = master;
-
         // Checking for any Activity (Rewrites read_fds)
         if (select(fdmax + 1, &read_fds, NULL, NULL, NULL) == -1)
         {
             perror("select");
             exit(4);
         }
-
         // Finding the Socket which requires the Attention
         for (i = 0; i <= fdmax; i++)
         {
@@ -98,13 +97,6 @@ void server_set_up(int *sockfd, struct sockaddr_in *server_addr)
     server_addr->sin_family = AF_INET;
     server_addr->sin_port = htons(PORT);
     server_addr->sin_addr.s_addr = INADDR_ANY;
-    // Bind
-    if (bind(*sockfd, (struct sockaddr *)server_addr, sizeof(struct sockaddr)) == -1)
-    {
-        perror("Unable to bind");
-        exit(1);
-    }
-    printf("TCP Server Bound to Port: %d\n", PORT);
 
     // Options
     int flag = 1;
@@ -112,6 +104,14 @@ void server_set_up(int *sockfd, struct sockaddr_in *server_addr)
 		perror("error in setsockopt");
 		exit(1);
 	}
+
+    // Bind
+    if (bind(*sockfd, (struct sockaddr *)server_addr, sizeof(struct sockaddr)) == -1)
+    {
+        perror("Unable to bind");
+        exit(1);
+    }
+    printf("TCP Server Bound to Port: %d\n", PORT);
 
     // Listen
     if (listen(*sockfd, 10) == -1)

@@ -146,9 +146,8 @@ void send_recv(int i, int sockfd, char name[32], fd_set *master)
     {
         nbyte_recvd = recv(sockfd, &recv_message, sizeof(struct message), 0);
         if (nbyte_recvd == 0) {
-            close(i);
             close(sockfd);
-            exit(0);
+            exit(1);
         }
         if (recv_message.type == 0)
         {
